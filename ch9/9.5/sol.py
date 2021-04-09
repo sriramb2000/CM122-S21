@@ -95,22 +95,14 @@ class SuffixTree(object):
             # finished at offset 'off' within an edge leading to 'node'
             return node.lab[off] == '$'
     
-    # def markNodes(self, node):
-    #     ret = -1
-    #     if len(node.out) > 1:
-    #         for key in node.out:
-    #             next = node.out[key]
-    #             ret = self.markNodes(next)
-    #             if (node.index == -1):
-    #                 node.index = ret
-    #             elif ((node.index == -2 and ret == -3) or (node.index == -3 and ret == -2) or (node.index == -4)):
-    #                 node.index = -4
-    #     elif (node.index > -1 and node.index < self.splitdex):
-    #         return -2
-    #     elif (node.index >= self.splitdex):
-    #         return -3
-
-    #     return node.index
+    def printEdges(self):
+        stack = [self.root]
+        while stack:
+            cur = stack.pop(0)
+            if cur.lab:
+                print(cur.lab)
+            stack += list(cur.out.values())
+        return
 
 def deepestInternal(node, builder):
     if len(node.out) > 1:
