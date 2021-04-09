@@ -2,6 +2,21 @@ import sys
 from typing import List
 from collections import defaultdict
 
+def rotate(strg, n):
+    return strg[n:] + strg[:n]
+
+def getBwt(text: str):
+    rotated = [(i, rotate(text, i)) for i in range(len(text))]
+    rotated.sort(key = lambda x: x[1])
+    bwt = [p[1][-1] for p in rotated]
+    suffix = [p[0] for p in rotated]
+
+    firstCol = sorted(text)
+    bands = {}
+    for s in set(text):
+        bands[s] = firstCol.index(s)
+    return bwt, suffix
+
 def bwtQuery(text, query) -> int:
     temp = [i[0] for i in sorted(enumerate(list(text)), key=lambda x:x[1])]
     l2f = {}
@@ -35,21 +50,47 @@ def betterBwtQuery(text, query) -> int:
         else:
             return last - first + 1
 
-def findOccurrences(text, patterns) -> int:
-    oc_pos = defaultdict(list)
-    pat_len = len(patterns[0])
-    text_len = len(text)
-    start = 0
-    while start + pat_len <= text_len:
-        oc_pos[text[start:start+pat_len]].append(start)
-        start += 1
+def findPatternOccurrences(text: str, patterns: List[str]):
+    bwt, suffix = getBwt(text)
 
-    positions = []
+    def getCountSymbol(s: str):
+        d = {}
+        res = [{}]
+        for c in s:
+            d[c] = d.get(c, 0) + 1
+            res.append(d.copy())
+        return res
+    count_symbol = getCountSymbol(bwt)
+
+    def getFirstOccurrence(s: str):
+        ordered = sorted(s)
+        d = {}
+        for c in set(s):
+            d[c] = ordered.index(c)
+        return d
+    first_occurrence = getFirstOccurrence(bwt)
+
+    def findPattern(p: str):
+        top = 0
+        bottom = len(text) - 1
+        while top <= bottom:
+            if p:
+                symbol = p[-1]
+                p = p[:-1]
+                if count_symbol[bottom+1].get(symbol, 0) > count_symbol[top].get(symbol, 0):
+                    top = first_occurrence[symbol] + count_symbol[top].get(symbol,0)
+                    bottom = first_occurrence[symbol] + count_symbol[bottom+1].get(symbol, 0) - 1
+                else:
+                    break
+            else:
+                return [suffix[i] for i in range(top, bottom+1)]
+        return []
+    
+    res = []
     for pattern in patterns:
-        positions += oc_pos[pattern]
-
-    return sorted(positions)
-
+        res += findPattern(pattern)
+    res.sort()
+    return res
 
 def countSymbol(symbol: str, text: List, i: int) -> int:
     return text[:i].count(symbol)
@@ -75,7 +116,7 @@ def part2(content: List[str]) -> None:
 def part3(content: List[str]) -> None:
     text = content[0]
     queryStrings = content[1:]
-    print(" ".join([str(x) for x in findOccurrences(text, queryStrings)]))
+    print(" ".join([str(x) for x in findPatternOccurrences(text, queryStrings)]))
 
 def main() -> None:
     if len(sys.argv) != 3:
