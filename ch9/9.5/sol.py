@@ -164,7 +164,7 @@ def part4(content: List[str]) -> None:
 
 def main() -> None:
     if len(sys.argv) != 3:
-        print("Usage: python sol.py 1|2 <filename>")
+        print("Usage: python sol.py 1|2|3|4 <filename>")
         return
     
     filename = sys.argv[2]
