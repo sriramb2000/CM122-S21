@@ -6,6 +6,7 @@ def decryptBWT(s):
     for length in range(len(s)):
         tokens = [s[i]+tokens[i] for i in range(len(s))]
         tokens.sort()
+        print(tokens)
     for s in tokens:
         if s[-1] == "$":
             return s

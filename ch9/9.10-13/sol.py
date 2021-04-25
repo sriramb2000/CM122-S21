@@ -118,6 +118,15 @@ def part3(content: List[str]) -> None:
     queryStrings = content[1:]
     print(" ".join([str(x) for x in findPatternOccurrences(text, queryStrings)]))
 
+def part4(content: List[str]) -> None:
+    text = content[0]
+    rotated = [rotate(text, i) for i in range(len(text))]
+    print(rotated)
+    rotated.sort()
+    print(rotated)
+    bwt = [p[-1] for p in rotated]
+    print(bwt)
+
 def main() -> None:
     if len(sys.argv) != 3:
         print("Usage: python sol.py 1|2|3 <filename>")
@@ -134,6 +143,8 @@ def main() -> None:
         part2(content)
     elif sys.argv[1] == "3":
         part3(content)
+    elif sys.argv[1] == "midterm":
+        part4(content)
 
 if __name__ == "__main__":
     main()
