@@ -2,8 +2,9 @@ import sys
 import argparse
 import time
 import zipfile
-from typing import List
 from collections import defaultdict
+from collections import Counter
+
 
 def parse_reads_file(reads_fn):
     """
@@ -54,154 +55,78 @@ def parse_ref_file(ref_fn):
 
 """
     TODO: Use this space to implement any additional functions you might need
-
 """
+def bwt(text):
+    rotated_texts = [text[len(text)-i:] + text[:len(text)-i] for i in range(len(text))]
+    sorted_rotated_texts = sorted(rotated_texts)
+    output = ""
+    for i in range(len(sorted_rotated_texts)):
+        output += sorted_rotated_texts[i][-1]
+    return output
 
-def rotate(strg, n):
-    return strg[n:] + strg[:n]
-
-def getBwt(text: str):
-    rotated = [(i, rotate(text, i)) for i in range(len(text))]
-    rotated.sort(key = lambda x: x[1])
-    bwt = [p[1][-1] for p in rotated]
-    suffix = [p[0] for p in rotated]
-
-    firstCol = sorted(text)
-    bands = {}
-    for s in set(text):
-        bands[s] = firstCol.index(s)
-    return bwt, suffix
-
-def approximateMatching(text: str, patterns: List[str], d: int):
-    bwt, suffix = getBwt(text)
-
-    def getCountSymbol(s: str):
-        d = {}
-        res = [{}]
-        for c in s:
-            d[c] = d.get(c, 0) + 1
-            res.append(d.copy())
-        return res
-    count_symbol = getCountSymbol(bwt)
-
-    def getFirstOccurrence(s: str):
-        ordered = sorted(s)
-        d = {}
-        for c in set(s):
-            d[c] = ordered.index(c)
-        return d
-    first_occurrence = getFirstOccurrence(bwt)
-
-    def genSeeds(p: str):
-        l = len(p)
-        assert l>d
-        minsize = l//(d+1)
-        cut = list(range(0,l-minsize+1,minsize))
-        cut.append(l)
-        seeds = [(p[cut[i-1]:cut[i]],cut[i-1]) for i in range(1,len(cut))]
-        return seeds
-    
-    def findSeed(seed: str):
-        top = 0
-        bottom = len(text) - 1
-        while top <= bottom:
-            if seed:
-                symbol = seed[-1]
-                seed = seed[:-1]
-                if count_symbol[bottom+1].get(symbol, 0) > count_symbol[top].get(symbol, 0):
-                    top = first_occurrence[symbol] + count_symbol[top].get(symbol,0)
-                    bottom = first_occurrence[symbol] + count_symbol[bottom+1].get(symbol, 0) - 1
-                else:
-                    break
+def better_bwt_matching(bwt_text, pattern, first_occurrence, suffix_array):
+    top = 0
+    bottom = len(bwt_text) - 1
+    while top <= bottom:
+        if pattern:
+            symbol = pattern[-1]
+            pattern = pattern[:-1]
+            if symbol in bwt_text[top:bottom+1]:
+                top = first_occurrence[symbol] + bwt_text[:top].count(symbol)
+                bottom = first_occurrence[symbol] + bwt_text[:bottom+1].count(symbol) - 1
             else:
-                return [suffix[i] for i in range(top, bottom+1)]
-        return []
-    
-    def kMismatch(offset: int, p: str, k: int):
-        snps = []
-        for i, c in enumerate(p):
-            if (c != text[offset+i]):
-                k -= 1
-                if k < 0:
-                    return (False, snps)
-                # original, actual, index
-                snps.append((text[offset+i], c, offset+i))
-        return (True, snps)
-    
-    def approxPatternPositions(p: str):
-        positions = set()
-        seedOffsetPairs = genSeeds(p)
-        snpz = []
-        for (seed, offset) in seedOffsetPairs:
-            candidate_poz = findSeed(seed)
-            for pos in candidate_poz:
-                pattern_pos = pos - offset
-                if pattern_pos < 0 or (pattern_pos + len(p) > len(text)):
-                    continue
-                kMatch, snps = kMismatch(pattern_pos, p, d)
-                if kMatch:
-                    positions.add(pattern_pos)
-                    snpz += snps
-        return (list(positions), snpz)
-    
-    res = []
-    all_snps = []
-    for pattern in patterns:
-        r, s = approxPatternPositions(pattern)
-        res += r
-        all_snps += s
-    return res, all_snps
-
-def flatten_read_list(reads):
-    temp = []
-    for r in reads:
-        temp += r
-    return temp
-
-def convert_to_freq_dic(all_snps):
-    freq_dic = defaultdict(lambda: defaultdict(int))
-    for snp in all_snps:
-        original, actual, index = snp
-        freq_dic[index][actual] += 1
-    
-    return freq_dic
-
-
-def filter_read_errs(all_snps):
-    filtered_dic = {}
-    for index in all_snps:
-        if len(all_snps[index]) == 1:
-            only_val_list = list(all_snps[index].keys())
-            if all_snps[index][only_val_list[0]] == 1:
-                continue
-        filtered_dic[index] = all_snps[index].copy()
-    
-    return filtered_dic
-
-def majority_snps(ref_string, all_snps):
-    final_snps = []
-    for index in all_snps:
-        if len(all_snps[index]) == 1:
-            # Only one type of variation at this index, include it
-            for actual in all_snps[index]:
-                final_snps.append((ref_string[index], actual, index))
+                return []
         else:
-            # Find the majority if possible and include it
-            max_val = -1
-            max_val_actual = None
-            total_count = 0
-            for actual in all_snps[index]:
-                actual_val = all_snps[index][actual]
-                total_count += actual_val
-                if actual_val > max_val:
-                    max_val = actual_val
-                    max_val_actual = actual
-            # If there is a majority, include it
-            if (max_val - (total_count // 2)) > 0:
-                final_snps.append((ref_string[index], max_val_actual, index))
-    
-    return final_snps
+            return [suffix_array[i] for i in range(top, bottom+1)]
 
+def kmer_matching(text, pattern, d, bwt_text, first_occurrence, suffix_array):
+    k_size = len(pattern) // (d + 1)
+    sol = set()
+    for i in range(0, len(pattern), k_size):
+        indices = better_bwt_matching(bwt_text, pattern[i:i + k_size], first_occurrence, suffix_array)
+        for j in sorted(indices):
+            start = j - i
+            if start < 0: continue
+            mismatches = 0
+            for k in range(start, start+len(pattern)):
+                if mismatches > d or k >= len(text): 
+                    mismatches = d + 1
+                    break
+                if text[k] != pattern[k-start]:
+                    mismatches += 1
+            if mismatches <= d:
+                sol.add(start)
+    return list(sol)
+
+def get_first_occurrence_map(first_col):
+    first_occurrence = {}
+    for i in range(len(first_col)):
+        if first_col[i] not in first_occurrence:
+            first_occurrence[first_col[i]] = i
+    return first_occurrence
+
+def get_suffix_array(bwt_text):
+    suffixes = []
+    for i in range(len(bwt_text)):
+        suffixes.append((reference[i:], i))
+    suffixes.sort()
+    return [x[1] for x in suffixes]
+
+def get_votes_by_reference_position(reference, read1, read1_index, read2, read2_index, limit, vote_dict):
+    for i in range(read1_index, read1_index + len(read1)):
+        if reference[i] != read1[i-read1_index]:
+            vote_dict[i][read1[i-read1_index]] += 1
+        else:
+            vote_dict[i]['original'] += 1
+    
+    read2_bwd = read2[::-1]
+    for i in range(read2_index, read2_index + len(read2)):
+        if reference[i] != read2_bwd[i-read2_index]:
+            vote_dict[i][read2_bwd[i-read2_index]] += 1
+        else:
+            vote_dict[i]['original'] += 1
+
+    return vote_dict
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='basic_aligner.py takes in data for homework assignment 1 consisting '
@@ -233,16 +158,36 @@ if __name__ == "__main__":
         TODO: Call functions to do the actual read alignment here
         
     """
-    # Get all snps from reads (currently ignores paired ordering)
-    _, temp_snps = approximateMatching(reference, flatten_read_list(input_reads), 1) 
-    # Filter out apparent read errors
-    read_errs_filtered = filter_read_errs(convert_to_freq_dic(temp_snps))
+    reference += '$'
+    bwt_text = bwt(reference)
+    first_col = sorted(bwt_text)
+    first_occurrence = get_first_occurrence_map(first_col)
+    suffix_array = get_suffix_array(bwt_text)
+    snps = set()
+    vote_dict = defaultdict(Counter)
+    d = 1
+    for [read1, read2] in input_reads:
+        # This basically finds start indices of length 50 of a read with <= 1 mismatch
+        read1_indices = \
+            kmer_matching(reference, read1, d, bwt_text, first_occurrence, suffix_array) \
+        # + kmer_matching(reference, read1[::-1], d, bwt_text, first_occurrence, suffix_array)   
+        read2_indices = \
+            kmer_matching(reference, read2[::-1], d, bwt_text, first_occurrence, suffix_array) \
+            # + kmer_matching(reference, read2, d, bwt_text, first_occurrence, suffix_array) 
+        for i in read1_indices:
+            for j in read2_indices:
+                if j - (i + 50) < 111 and j - (i + 50) > 89:
+                    get_votes_by_reference_position(reference, read1, i, read2, j, d, vote_dict)
 
-    # Filter out any non-majority snps
-    snps = majority_snps(reference, read_errs_filtered)
+    for pos,votes in vote_dict.items():
+        curr_max = (0, None)
+        for key,count in votes.items():
+            if count > curr_max[0]:
+                curr_max = (count, key)
+        if curr_max[1] != 'original' and curr_max[1] != None:
+            snps.add((reference[pos], curr_max[1], pos))
 
-    # snps = [['A', 'G', 3425]]
-
+    # snps = sorted(list(snps), key=lambda x: x[2])
     output_fn = args.output_file
     zip_fn = output_fn + '.zip'
     with open(output_fn, 'w') as output_file:
