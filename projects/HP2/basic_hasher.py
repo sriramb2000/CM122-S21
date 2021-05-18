@@ -5,40 +5,7 @@ import zipfile
 from itertools import zip_longest, islice
 from collections import defaultdict
 from collections import Counter
-
-#  From https://louisabraham.github.io/notebooks/suffix_arrays.html
-
-def to_int_keys_best(l):
-    """
-    l: iterable of keys
-    returns: a list with integer keys
-    """
-    seen = set()
-    ls = []
-    for e in l:
-        if not e in seen:
-            ls.append(e)
-            seen.add(e)
-    ls.sort()
-    index = {v: i for i, v in enumerate(ls)}
-    return [index[v] for v in l]
-
-def suffix_array_best(s):
-    """
-    suffix array of s
-    O(n * log(n)^2)
-    """
-    n = len(s)
-    k = 1
-    line = to_int_keys_best(s)
-    while max(line) < n - 1:
-        line = to_int_keys_best(
-            [a * (n + 1) + b + 1
-             for (a, b) in
-             zip_longest(line, islice(line, k, None),
-                         fillvalue=-1)])
-        k <<= 1
-    return line
+from pydivsufsort import divsufsort
 
 def parse_reads_file(reads_fn):
     """
@@ -323,7 +290,7 @@ if __name__ == "__main__":
     # use efficient way to build suffix array and build bwt from suffix array
     # bwt_text, suffix_array = build_suffix_array(reference)
     # bwt_text = bwt_from_suffix_array(suffix_array, reference)
-    suffix_array = suffix_array_best(reference)
+    suffix_array = divsufsort(reference)
     bwt_text = bwt_from_suffix_array(suffix_array, reference)
 
     # use bwt to get count of each allele at each position (from beginning)
