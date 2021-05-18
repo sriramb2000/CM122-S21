@@ -5,6 +5,9 @@ import zipfile
 from collections import defaultdict
 from collections import Counter
 
+def cmp(a, b):
+    return (a>b)-(a<b)
+
 # Linear time BWT/Suffix Array Construction from https://github.com/michaelting/BWT/blob/master/bwt.py
 
 def process_FASTA(infile):
@@ -161,7 +164,7 @@ def DC3_samsort(suftuplst):
         
         invsuffixarray = dict((v,k) for k,v in suffixarray.items()) # index: rank
         # sort by ranks
-        indices = sorted(invsuffixarray, cmp=lambda x,y:compare(x,y))
+        indices = sorted(invsuffixarray, cmp=lambda x,y:cmp(x,y))
         # get ordering of suffixes using suffix array information
         # relabel our suffixes using our ranks, which are now unique from recursion
         arraysortedsamples = []
@@ -203,7 +206,7 @@ def DC3_radixsort(suftuplst, iternum):
         # buckets will look like [ ([1,2,3],1), ([1,2,4],3), ...]]
         buckets[label].append(suftuple)
     # sort bucket keys numerically increasing, 1,2,3,...
-    keysortedbuckets = sorted(buckets, cmp=lambda x,y:compare(x,y)) # sort by numerical value
+    keysortedbuckets = sorted(buckets, cmp=lambda x,y:cmp(x,y)) # sort by numerical value
     # order the suffixes
     ordered = []
     for key in keysortedbuckets:
@@ -311,7 +314,7 @@ def DC3_nonsamradixsort(nonsampairtuplst, iternum):
             # buckets will look like [ (1,1), (2,3), ...]]
             buckets[label].append(nonsampairtup)
     # sort bucket keys numerically increasing, 1,2,3,...
-    keysortedbuckets = sorted(buckets, cmp=lambda x,y:compare(x,y)) # sort by numerical value
+    keysortedbuckets = sorted(buckets, cmp=lambda x,y:cmp(x,y)) # sort by numerical value
     # order the suffixes
     ordered = []
     for key in keysortedbuckets:
