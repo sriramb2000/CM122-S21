@@ -6,6 +6,7 @@ from itertools import zip_longest, islice
 from collections import defaultdict
 from collections import Counter
 from pydivsufsort import divsufsort
+import numpy as np
 
 def parse_reads_file(reads_fn):
     """
@@ -60,20 +61,26 @@ def parse_ref_file(ref_fn):
     TODO: Use this space to implement any additional functions you might need
 
 """
-# # DEPRECATED: use bwt_from_suffix_array in junction with build_suffix_array instead
-# def bwt(text):
-#     rotated_texts = [text[len(text)-i:] + text[:len(text)-i] for i in range(len(text))]
-#     sorted_rotated_texts = sorted(rotated_texts)
-#     output = ""
-#     for i in range(len(sorted_rotated_texts)):
-#         output += sorted_rotated_texts[i][-1]
-#     return output
-
 def bwt_from_suffix_array(suffix_array, ref_text):
+    alphabet = ['$', 'A', 'C', 'G', 'T']
     bwt = ""
     for i in range(len(ref_text)):
         bwt += ref_text[suffix_array[i]-1] # use BWT <-> SA correspondence
-    return bwt
+
+    first_occurrences = {}
+    counts = defaultdict(lambda: [0] * (len(ref_text) + 1))
+    
+    for i in range(len(ref_text)):
+        cur = bwt[i]
+        for char, count in counts.items():
+            counts[char][i+1] = counts[char][i]
+        counts[cur][i+1] += 1
+    curIndex = 0
+    for c in sorted(alphabet):
+        first_occurrences[c] = curIndex
+        curIndex += counts[c][len(ref_text)]
+
+    return bwt, first_occurrences, counts
 
 def better_bwt_matching(bwt_text_len, pattern, first_occurrence, suffix_array, symbol_counts):
     top = 0
@@ -82,9 +89,9 @@ def better_bwt_matching(bwt_text_len, pattern, first_occurrence, suffix_array, s
         if pattern:
             symbol = pattern[-1]
             pattern = pattern[:-1]
-            if symbol_counts[top-1][symbol] < symbol_counts[bottom][symbol]: # symbol in bwt_text[top:bottom+1]:
-                top = first_occurrence[symbol] + symbol_counts[top-1][symbol] # bwt_text[:top].count(symbol)
-                bottom = first_occurrence[symbol] + symbol_counts[bottom][symbol] - 1 # bwt_text[:bottom+1].count(symbol) - 1
+            if symbol_counts[symbol][top-1] < symbol_counts[symbol][bottom]: # symbol in bwt_text[top:bottom+1]:
+                top = first_occurrence[symbol] + symbol_counts[symbol][top-1] # bwt_text[:top].count(symbol)
+                bottom = first_occurrence[symbol] + symbol_counts[symbol][bottom] - 1 # bwt_text[:bottom+1].count(symbol) - 1
             else:
                 return []
         else:
@@ -116,38 +123,6 @@ def get_first_occurrence_map(first_col):
         if first_col[i] not in first_occurrence:
             first_occurrence[first_col[i]] = i
     return first_occurrence
-
-# """
-# More efficient suffix array construction algorithm
-# Source: https://www.geeksforgeeks.org/suffix-array-set-2-a-nlognlogn-algorithm/
-# """
-# def build_suffix_array(ref_text):
-#     suffixes = [{'index': i, 'rank': [ord(ref_text[i]) - ord('a'), ord(ref_text[i+1]) - ord('a') if i < len(ref_text)-1 else -1]} for i in range(len(ref_text))]
-#     suffixes = sorted(suffixes, key = lambda x: (x['rank'][0], x['rank'][1]))
-#     ind = [0] * len(ref_text)
-#     k = 4
-#     while (k < 2*len(ref_text)):
-#         rank, prev_rank = 0, suffixes[0]['rank'][0]
-#         suffixes[0]['rank'][0] = rank
-#         ind[suffixes[0]['index']] = 0
-#         for i in range(1, len(ref_text)):
-#             if (suffixes[i]['rank'][0] == prev_rank and suffixes[i]['rank'][1] == suffixes[i - 1]['rank'][1]):
-#                 prev_rank = suffixes[i]['rank'][0]
-#                 suffixes[i]['rank'][0] = rank  
-#             else: 
-#                 prev_rank = suffixes[i]['rank'][0]
-#                 rank += 1
-#                 suffixes[i]['rank'][0] = rank
-#             ind[suffixes[i]['index']] = i
-
-#         for i in range(len(ref_text)):
-#             nextindex = suffixes[i]['index'] + k // 2
-#             suffixes[i]['rank'][1] = suffixes[ind[nextindex]]['rank'][0] if (nextindex < len(ref_text)) else -1
-
-#         suffixes = sorted(suffixes, key = lambda x: (x['rank'][0], x['rank'][1]))
-#         k *= 2
-
-#     return [suffixes[i]['index'] for i in range(len(suffixes))]
 
 def get_votes_by_reference_position(reference, read1, read1_index, read2, read2_index, limit, vote_dict):
     for i in range(read1_index, read1_index + len(read1)):
@@ -290,16 +265,19 @@ if __name__ == "__main__":
     # use efficient way to build suffix array and build bwt from suffix array
     # bwt_text, suffix_array = build_suffix_array(reference)
     # bwt_text = bwt_from_suffix_array(suffix_array, reference)
-    suffix_array = divsufsort(reference)
-    bwt_text = bwt_from_suffix_array(suffix_array, reference)
+    # suffix_array = divsufsort()
+    suffix_array = divsufsort(np.unique(np.array(list(reference)), return_inverse=True)[1])
+    print("Initialized suffix array")
+    bwt_text, first_occurrence, symbol_counts = bwt_from_suffix_array(suffix_array, reference)
+    print("Initialized support data structures")
 
     # use bwt to get count of each allele at each position (from beginning)
-    symbol_counts = defaultdict(Counter)
-    for i in range(len(bwt_text)):
-        symbol_counts[i] = symbol_counts[i-1].copy()
-        symbol_counts[i][bwt_text[i]] += 1
-    first_col = sorted(bwt_text)
-    first_occurrence = get_first_occurrence_map(first_col)
+    # symbol_counts = defaultdict(Counter)
+    # for i in range(len(bwt_text)):
+    #     symbol_counts[i] = symbol_counts[i-1].copy()
+    #     symbol_counts[i][bwt_text[i]] += 1
+    # first_col = sorted(bwt_text)
+    # first_occurrence = get_first_occurrence_map(first_col)
     snps = set()
     insertions = set()
     deletions = set()
@@ -311,13 +289,14 @@ if __name__ == "__main__":
             else: indel_mismatch_scoring_matrix[i][j] = -1
     d = 1
     print("Running matching algorithm...")
+    ccc = 1
     for [read1, read2] in input_reads:
+        print("Processing Read {}".format(ccc))
+        ccc += 1
         # SNPS
         # This basically finds start indices of length 50 of a read with <= 1 mismatch
-        read1_indices = \
-            kmer_matching(reference, read1, d, len(bwt_text), first_occurrence, suffix_array, symbol_counts)
-        read2_indices = \
-            kmer_matching(reference, read2[::-1], d, len(bwt_text), first_occurrence, suffix_array, symbol_counts)
+        read1_indices = kmer_matching(reference, read1, d, len(bwt_text), first_occurrence, suffix_array, symbol_counts)
+        read2_indices = kmer_matching(reference, read2[::-1], d, len(bwt_text), first_occurrence, suffix_array, symbol_counts)
 
         snp_found_do_not_check_indels = False
         for i in read1_indices:
