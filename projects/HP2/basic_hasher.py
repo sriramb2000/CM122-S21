@@ -56,42 +56,33 @@ def parse_ref_file(ref_fn):
         print("Could not read file: ", ref_fn)
         return None
 
-
-"""
-    TODO: Use this space to implement any additional functions you might need
-
-"""
-def bwt_from_suffix_array(suffix_array, ref_text):
-    alphabet = ['$', 'A', 'C', 'G', 'T']
+def auxiliary_from_suffix_array(suffix_array, ref_text):
     bwt = ""
     for i in range(len(ref_text)):
-        bwt += ref_text[suffix_array[i]-1] # use BWT <-> SA correspondence
+        bwt += ref_text[suffix_array[i]-1] 
 
+    counts = defaultdict(Counter)
+    for i in range(len(bwt)):
+        counts[i] = counts[i-1].copy()
+        counts[i][bwt[i]] += 1
+    first_col = sorted(bwt)
     first_occurrences = {}
-    counts = defaultdict(lambda: [0] * (len(ref_text) + 1))
-    
-    for i in range(len(ref_text)):
-        cur = bwt[i]
-        for char, count in counts.items():
-            counts[char][i+1] = counts[char][i]
-        counts[cur][i+1] += 1
-    curIndex = 0
-    for c in sorted(alphabet):
-        first_occurrences[c] = curIndex
-        curIndex += counts[c][len(ref_text)]
+    for i in range(len(first_col)):
+        if first_col[i] not in first_occurrences:
+            first_occurrences[first_col[i]] = i
 
     return bwt, first_occurrences, counts
 
 def better_bwt_matching(bwt_text_len, pattern, first_occurrence, suffix_array, symbol_counts):
     top = 0
-    bottom = bwt_text_len - 1 # len(bwt_text) - 1
+    bottom = bwt_text_len - 1 
     while top <= bottom:
         if pattern:
             symbol = pattern[-1]
             pattern = pattern[:-1]
-            if symbol_counts[symbol][top-1] < symbol_counts[symbol][bottom]: # symbol in bwt_text[top:bottom+1]:
-                top = first_occurrence[symbol] + symbol_counts[symbol][top-1] # bwt_text[:top].count(symbol)
-                bottom = first_occurrence[symbol] + symbol_counts[symbol][bottom] - 1 # bwt_text[:bottom+1].count(symbol) - 1
+            if symbol_counts[top-1][symbol] < symbol_counts[bottom][symbol]: 
+                top = first_occurrence[symbol] + symbol_counts[top-1][symbol]
+                bottom = first_occurrence[symbol] + symbol_counts[bottom][symbol] - 1 
             else:
                 return []
         else:
@@ -99,7 +90,6 @@ def better_bwt_matching(bwt_text_len, pattern, first_occurrence, suffix_array, s
 
 def kmer_matching(text, pattern, d, bwt_text_len, first_occurrence, suffix_array, symbol_counts):
     k_size = len(pattern) // (d + 1)
-    if k_size == 0: return []
     sol = set()
     for i in range(0, len(pattern), k_size):
         indices = better_bwt_matching(bwt_text_len, pattern[i:i + k_size], first_occurrence, suffix_array, symbol_counts)
@@ -117,84 +107,72 @@ def kmer_matching(text, pattern, d, bwt_text_len, first_occurrence, suffix_array
                 sol.add(start)
     return list(sol)
 
-def get_first_occurrence_map(first_col):
-    first_occurrence = {}
-    for i in range(len(first_col)):
-        if first_col[i] not in first_occurrence:
-            first_occurrence[first_col[i]] = i
-    return first_occurrence
-
-def get_votes_by_reference_position(reference, read1, read1_index, read2, read2_index, limit, vote_dict):
+def accumulate_ref_pos_votes(reference, read1, read1_index, read2, read2_index, ref_pos_votes):
     for i in range(read1_index, read1_index + len(read1)):
         if reference[i] != read1[i-read1_index]:
-            vote_dict[i][read1[i-read1_index]] += 1
+            ref_pos_votes[i][read1[i-read1_index]] += 1
         else:
-            vote_dict[i]['original'] += 1
+            ref_pos_votes[i]['match'] += 1
     
-    read2_bwd = read2[::-1]
     for i in range(read2_index, read2_index + len(read2)):
-        if reference[i] != read2_bwd[i-read2_index]:
-            vote_dict[i][read2_bwd[i-read2_index]] += 1
+        if reference[i] != read2[i-read2_index]:
+            ref_pos_votes[i][read2[i-read2_index]] += 1
         else:
-            vote_dict[i]['original'] += 1
+            ref_pos_votes[i]['match'] += 1
 
-    return vote_dict
+    return ref_pos_votes
 
-def fitting_alignment_affine_gap_penalty(v, w, scoring_matrix, sigma, epsilon):
-    '''
-    Returns the score and local alignment substrings for strings v, w with the
-    given scoring matrix, gap opening penalty sigma, and gap extension penalty epsilon.
-    '''
+# GRAPH LEVELS
+BOTTOM = 0
+MIDDLE = 1
+TOP = 2
 
-    # Initialize the matrices.
-    S_lower = [[0 for j in range(len(w)+1)] for i in range(len(v)+1)]
-    S_middle = [[0 for j in range(len(w)+1)] for i in range(len(v)+1)]
-    S_upper = [[0 for j in range(len(w)+1)] for i in range(len(v)+1)]
-    backtrack = [[0 for j in range(len(w)+1)] for i in range(len(v)+1)]
+def insert_del(word, i):
+    return word[:i] + '-' + word[i:]
 
-    # Initialize the maximum score below the lowest possible score.
+def fit_align_with_affine_gap(v, w, sigma, epsilon):
+    sB = [[0 for _ in range(len(w)+1)] for _ in range(len(v)+1)]
+    sM = [[0 for _ in range(len(w)+1)] for _ in range(len(v)+1)]
+    sT = [[0 for _ in range(len(w)+1)] for _ in range(len(v)+1)]
+    backtrack = [[0 for _ in range(len(w)+1)] for _ in range(len(v)+1)]
+
     max_score = -1
 
-    # Fill in the Score and Backtrack matrices.
     for i in range(1, len(v)+1):
         for j in range(1, len(w)+1):
-            S_lower[i][j] = max([S_lower[i-1][j] - epsilon, S_middle[i-1][j] - sigma])
-            S_upper[i][j] = max([S_upper[i][j-1] - epsilon, S_middle[i][j-1] - sigma])
-            middle_scores = [S_lower[i][j], S_middle[i-1][j-1] + scoring_matrix[v[i-1]][w[j-1]], S_upper[i][j]]
-            S_middle[i][j] = max(middle_scores)
-            backtrack[i][j] = middle_scores.index(S_middle[i][j])
+            sB[i][j] = max([sB[i-1][j] - epsilon, sM[i-1][j] - sigma])
+            sT[i][j] = max([sT[i][j-1] - epsilon, sM[i][j-1] - sigma])
+            match_val = 1 if v[i-1] == w[j-1] else -1
+            middle_scores = [sB[i][j], sM[i-1][j-1] + match_val, sT[i][j]]
+            sM[i][j] = max(middle_scores)
+            backtrack[i][j] = middle_scores.index(sM[i][j])
 
-            if S_middle[i][j] > max_score:
-                max_score = S_middle[i][j]
+            if sM[i][j] > max_score:
+                max_score = sM[i][j]
 
-    # Initialize the indices to start at the position of the high score.
     j = len(w)
-    i = max(enumerate([S_middle[row][j] for row in range(len(w), len(v))]),key=lambda x: x[1])[0] + len(w)
+    i = max(enumerate([sM[row][j] for row in range(len(w), len(v))]),key=lambda x: x[1])[0] + len(w)
 
-    # Initialize the aligned strings as the input strings up to the position of the high score.
     v_aligned, w_aligned = v[:i], w[:j]
 
-    insert_indel = lambda word, i: word[:i] + '-' + word[i:]
-
-    # Backtrack to start of the local alignment starting at the highest scoring cell.
-    # Note: the solution format specifically asks for substrings, so no indel insertion necessary.
-    while i*j != 0:
-        if backtrack[i][j] == 0:
+    while i != 0 and j != 0:
+        if backtrack[i][j] == BOTTOM:
             i -= 1
-            w_aligned = insert_indel(w_aligned, j)
-        elif backtrack[i][j] == 1:
+            w_aligned = insert_del(w_aligned, j)
+        elif backtrack[i][j] == MIDDLE:
             i -= 1
             j -= 1
-        elif backtrack[i][j] == 2:
+            # Don't need to worry about mismatches, only indels
+        elif backtrack[i][j] == TOP:
             j -= 1
-            v_aligned = insert_indel(v_aligned, i)
+            v_aligned = insert_del(v_aligned, i)
 
     # Cut the strings at the ending point of the backtrack.
     v_aligned = v_aligned[i:]
 
     return max_score, i, v_aligned, w_aligned
 
-def get_indels_from_final_read_ref(final_ref, final_read, read_i):
+def indels_from_align_ref(final_ref, final_read, read_i):
     insertions, deletions = set(), set()
     curr_ins, curr_del = ["", None], ["", None]
     for i in range(len(final_ref)):
@@ -211,11 +189,9 @@ def get_indels_from_final_read_ref(final_ref, final_read, read_i):
         else:
             if curr_ins[1]:
                 insertions.add((curr_ins[0], curr_ins[1]))
-                # print("ins", curr_ins)
                 curr_ins = ["", None]
             if curr_del[1]:
                 deletions.add((curr_del[0], curr_del[1]))
-                # print("del", curr_del)
                 curr_del = ["", None]
     return insertions, deletions
 
@@ -248,103 +224,106 @@ if __name__ == "__main__":
     if reference is None:
         sys.exit(1)
 
-    """
-        TODO: Call functions to do the actual read alignment here
-
-    """
     # Calling SNPS
     print("Calling SNPs")
-    print("Initializing support data structures...")
     reference += '$'
 
-    # build hash table
-    lookup_table_25_bp = defaultdict(list)
-    for i in range(len(reference) - 25):
-        lookup_table_25_bp[reference[i:i+25]].append(i)
-
-    # use efficient way to build suffix array and build bwt from suffix array
-    # bwt_text, suffix_array = build_suffix_array(reference)
-    # bwt_text = bwt_from_suffix_array(suffix_array, reference)
-    # suffix_array = divsufsort()
+        # use efficient way to build suffix array and build bwt from suffix array
     suffix_array = divsufsort(np.unique(np.array(list(reference)), return_inverse=True)[1])
     print("Initialized suffix array")
-    bwt_text, first_occurrence, symbol_counts = bwt_from_suffix_array(suffix_array, reference)
-    print("Initialized support data structures")
+    bwt_text, first_occurrence, symbol_counts = auxiliary_from_suffix_array(suffix_array, reference)
+    # build hash table
+    referece_dic_25 = defaultdict(list)
+    for i in range(len(reference) - 25):
+        referece_dic_25[reference[i:i+25]].append(i)
 
-    # use bwt to get count of each allele at each position (from beginning)
-    # symbol_counts = defaultdict(Counter)
-    # for i in range(len(bwt_text)):
-    #     symbol_counts[i] = symbol_counts[i-1].copy()
-    #     symbol_counts[i][bwt_text[i]] += 1
-    # first_col = sorted(bwt_text)
-    # first_occurrence = get_first_occurrence_map(first_col)
     snps = set()
     insertions = set()
     deletions = set()
-    vote_dict = defaultdict(Counter)
-    indel_mismatch_scoring_matrix = defaultdict(Counter)
-    for i in ['A', 'C', 'T', 'G']:
-        for j in ['A', 'C', 'T', 'G']:
-            if i == j: indel_mismatch_scoring_matrix[i][j] = 1
-            else: indel_mismatch_scoring_matrix[i][j] = -1
+    ref_pos_votes = defaultdict(Counter)
     d = 1
-    print("Running matching algorithm...")
+    sigma = 11
+    epsilon = 2
+    print("Running algorithm...")
     ccc = 1
     for [read1, read2] in input_reads:
         print("Processing Read {}".format(ccc))
         ccc += 1
         # SNPS
-        # This basically finds start indices of length 50 of a read with <= 1 mismatch
-        read1_indices = kmer_matching(reference, read1, d, len(bwt_text), first_occurrence, suffix_array, symbol_counts)
-        read2_indices = kmer_matching(reference, read2[::-1], d, len(bwt_text), first_occurrence, suffix_array, symbol_counts)
+        maxMatchCount = -1
+        max_read1_indices, max_read2_indices, max_read1, max_read2 = None, None, None, None
+        for flip1 in [1, -1]:
+            for flip2 in [1, -1]:
+                if flip1 == -1 and flip2 == -1:
+                    continue
+                read1_, read2_ = read1[::flip1], read2[::flip2]
+                read1_indices = kmer_matching(reference, read1_, d, len(bwt_text), first_occurrence, suffix_array, symbol_counts)
+                read2_indices = kmer_matching(reference, read2_, d, len(bwt_text), first_occurrence, suffix_array, symbol_counts)
+                matchCount = 0
+                for i in read1_indices:
+                    for j in read2_indices:
+                        if j - (i + 50) < 111 and j - (i + 50) > 89:
+                            matchCount += 1
+                if matchCount > maxMatchCount:
+                    max_read1_indices, max_read2_indices, max_read1, max_read2 = read1_indices, read2_indices, read1_, read2_
+                    maxMatchCount = matchCount
 
-        snp_found_do_not_check_indels = False
-        for i in read1_indices:
-            for j in read2_indices:
+        snpFound = False
+        for i in max_read1_indices:
+            for j in max_read2_indices:
                 if j - (i + 50) < 111 and j - (i + 50) > 89:
-                    get_votes_by_reference_position(reference, read1, i, read2, j, d, vote_dict)
-                    snp_found_do_not_check_indels = True
+                    accumulate_ref_pos_votes(reference, max_read1, i, max_read2, j, ref_pos_votes)
+                    snpFound = True
         
-        if snp_found_do_not_check_indels: continue
+        if snpFound: continue
 
         # INDELS
-        read1_occurrences, read2_occurrences = [], []
-        read2_bwd = read2[::-1]
-        for i in [0, 25]:
-            read1_occurrences.extend([x - i for x in lookup_table_25_bp[read1[i:i+25]]])
-            read2_occurrences.extend([x - i for x in lookup_table_25_bp[read2_bwd[i:i+25]]])
+        maxAlignCount = -1
+        max_read1_occurrences, max_read2_occurrences, max_read1, max_read2 = None, None, None, None
 
-        for i in read1_occurrences:
-            for j in read2_occurrences:
+        for flip1 in [1, -1]:
+            for flip2 in [1, -1]:
+                read1_ = read1[::flip1]
+                read2_ = read2[::flip2]
+                read1_occurrences, read2_occurrences = [], []
+
+                for i in [0, 25]:
+                    read1_occurrences.extend([x - i for x in referece_dic_25[read1_[i:i+25]]])
+                    read2_occurrences.extend([x - i for x in referece_dic_25[read2_[i:i+25]]])
+                alignCount = 0
+                for i in read1_occurrences:
+                    for j in read2_occurrences:
+                        if j - i <= 300 and j - i >= 50 and i > 100 and j > 100:
+                            alignCount += 1
+
+                if alignCount > maxAlignCount:
+                    max_read1_occurrences, max_read2_occurrences, max_read1, max_read2 = read1_occurrences, read2_occurrences, read1_, read2_
+                    maxAlignCount = alignCount
+
+        for i in max_read1_occurrences:
+            for j in max_read2_occurrences:
                 if j - i <= 300 and j - i >= 50 and i > 100 and j > 100:
-                    read1_score, read1_i, final_ref1, final_read1 = \
-                        fitting_alignment_affine_gap_penalty(\
-                            reference[i-100:i+100], read1, indel_mismatch_scoring_matrix, 11, 2)
-                        # (v, w, scoring_matrix, sigma, epsilon):
-                    read2_score, read2_i, final_ref2, final_read2 = \
-                        fitting_alignment_affine_gap_penalty(\
-                            reference[j-100:j+100], read2_bwd, indel_mismatch_scoring_matrix, 11, 2)
-
-                    # if read1_score > 0: print(read1_score, read1_i, final_ref1, final_read1)
-                    # if read2_score > 0: print(read2_score, read2_i, final_ref2, final_read2)
+                    read1_score, read1_i, read1_ref, final_read1 = \
+                        fit_align_with_affine_gap(\
+                            reference[i-100:i+100], max_read1, sigma, epsilon)
+                    read2_score, read2_i, read2_ref, final_read2 = \
+                        fit_align_with_affine_gap(\
+                            reference[j-100:j+100], max_read2, sigma, epsilon)
 
                     if read1_score + read2_score > 0:
-                        ins, dels = get_indels_from_final_read_ref(final_ref1, final_read1, i - 100 + read1_i)
-                        insertions.update(ins)
-                        deletions.update(dels)
+                        ins1, dels1 = indels_from_align_ref(read1_ref, final_read1, i - 100 + read1_i)
+                        ins2, dels2 = indels_from_align_ref(read2_ref, final_read2, j - 100 + read2_i)
 
-                        ins, dels = get_indels_from_final_read_ref(final_ref2, final_read2, j - 100 + read2_i)
-                        insertions.update(ins)
-                        deletions.update(dels)
+                        insertions.update(ins1)
+                        deletions.update(dels1)
+                        insertions.update(ins2)
+                        deletions.update(dels2)
 
     # Majority vote for SNPS locations
-    for pos,votes in vote_dict.items():
-        curr_max = (0, None)
-        for key,count in votes.items():
-            if count > curr_max[0]:
-                curr_max = (count, key)
-        if curr_max[1] != 'original' and curr_max[1] != None:
-            snps.add((reference[pos], curr_max[1], pos))
+    for pos,votes in ref_pos_votes.items():
+        curr_max = max(votes.items(), key=lambda x: x[1])
+        if curr_max[0] != 'match' and curr_max[0] != None:
+            snps.add((reference[pos], curr_max[0], pos))
 
     output_fn = args.output_file
     zip_fn = output_fn + '.zip'
