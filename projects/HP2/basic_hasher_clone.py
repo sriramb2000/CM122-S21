@@ -307,7 +307,10 @@ if __name__ == "__main__":
             else: indel_mismatch_scoring_matrix[i][j] = -1
     d = 1
     print("Running matching algorithm...")
+    ccc = 1
     for [read1, read2] in input_reads:
+        print("Processing Read {}".format(ccc))
+        ccc += 1
         # SNPS
         # This basically finds start indices of length 50 of a read with <= 1 mismatch
         read1_indices = \

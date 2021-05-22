@@ -35,6 +35,66 @@ def parse_reads_file(reads_fn):
         print("Could not read file: ", reads_fn)
         return None
 
+def generate_contigs_from_reads(graph):
+    degrees = graph_degrees(graph)
+    contigs = []
+
+    for v in graph.keys():
+        if degrees[v] == [1, 1]:
+            continue
+        for u in graph[v]:
+            contig = v
+            w = u
+            while True:
+                contig += w[-1]
+                w_degree = degrees[w]
+                if w_degree == [1, 1]:
+                    w = graph[w][0]
+                else:
+                    break
+            contigs.append(contig)
+    return sorted(contigs)
+
+def debrujin_graph_from_reads(reads, k):
+    de_bruijn_counter = defaultdict(Counter)
+    for read in reads:
+        # Cut the read into k-mers
+        kmers = [read[i: i + k] for i in range(len(read) - k)]
+        for i in range(len(kmers) - 1):
+            pvs_kmer = kmers[i]
+            next_kmer = kmers[i + 1]
+            de_bruijn_counter[pvs_kmer].update([next_kmer])
+
+    # Eemoves the nodes from the DeBruijn Graph that we have not seen enough.
+    de_bruijn_graph = defaultdict(list)
+    for key, val in de_bruijn_counter.items():
+        if not val:
+            continue
+        for end, count in val.items():
+            if count > 3: # could be 5
+                de_bruijn_graph[key].append(end)
+    de_bruijn_graph = {key: de_bruijn_graph[key] for key in de_bruijn_graph if de_bruijn_graph[key]}
+    return de_bruijn_graph
+
+def graph_degrees(graph):
+    degrees = {}
+    for i in graph.keys():
+        neighbors = graph[i]
+        out_degree = len(neighbors)
+
+        if i in degrees:
+            degrees[i][1] = out_degree
+        else:
+            degrees[i] = [0, out_degree]
+
+        for j in neighbors:
+            if j in degrees:
+                degrees[j][0] += 1
+            else:
+                degrees[j] = [1, 0]
+
+    return degrees
+
 
 """
     TODO: Use this space to implement any additional functions you might need
@@ -67,8 +127,8 @@ if __name__ == "__main__":
             TODO: Call functions to do the actual assembly here
 
     """
-
-    contigs = ['GCTGACTAGCTAGCTACGATCGATCGATCGATCGATCGATGACTAGCTAGCTAGCGCTGACT']
+    all_reads = [item for sublist in input_reads for item in sublist]
+    contigs = generate_contigs_from_reads(debrujin_graph_from_reads(all_reads, 30))
 
     output_fn = args.output_file
     zip_fn = output_fn + '.zip'
